@@ -34,34 +34,37 @@ module ActionDispatch
         @redis = Redis.new(@default_options)
       end
 
+      def destroy(env)
+        @redis.del prefixed(env['rack.request.cookie_hash'][@key])
+      end
+
       private
+
         def prefixed(sid)
           "#{@default_options[:key_prefix]}#{sid}"
         end
-    
+
         def get_session(env, sid)
           sid ||= generate_sid
-          begin
-            data = @redis.get prefixed(sid)
-            session = data.nil? ? {} : Marshal.load(data)
-          rescue Errno::ECONNREFUSED
-            session = {}
-          end
+
+          data = @redis.get prefixed(sid)
+          session = data.nil? ? {} : Marshal.load(data)
+
           [sid, session]
         end
 
         def set_session(env, sid, session_data)
           options = env['rack.session.options']
           expiry  = options[:expire_after] || nil
-      
-          @redis.set(prefixed(sid), Marshal.dump(session_data))
-          @redis.expire(prefixed(sid), expiry) if expiry
-        
-          return true
-        rescue Errno::ECONNREFUSED
-          return false
+
+          @redis.pipelined do
+            @redis.set(prefixed(sid), Marshal.dump(session_data))
+            @redis.expire(prefixed(sid), expiry) if expiry
+          end
+
+          sid
         end
-  
+
     end
-end
+  end
 end
